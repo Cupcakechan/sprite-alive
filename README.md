@@ -1,12 +1,11 @@
-# Sprite Alive
+# sprite-alive
 
 **See your animation the way it will feel in-game — before you touch an engine.**
 
 Sprite Alive is a free, browser-based sprite sheet animation tester for pixel artists and game developers. Drop in a sprite sheet, slice it, and watch it play with placeholder game-feel effects like beams, hit flashes, and glow — in under 30 seconds.
 
+<<<<<<< HEAD
 **[▶ Try it live]https://cupcakechan.github.io/sprite-alive/**
-
-
 
 ## Why
 
@@ -32,6 +31,7 @@ Existing sprite previewers answer *"is my animation smooth?"* — but not *"will
 
 ## Usage
 
+<<<<<<< HEAD
 1. Open the [live page](https://cupcakechan.github.io/sprite-alive/) (or download `index.html` and double-click it — it works offline).
 2. Drop in a sprite sheet, or click **Try the demo sheet**.
 3. Confirm the slicing grid lines up with your frames, then **Continue**.
@@ -54,5 +54,4 @@ Effects are small plug-in objects — each is a name, a parameter list, and a `d
 - [ ] Mobile-friendly layout
 
 ## Status
-
 Alpha 0.1 — feedback welcome via [issues](../../issues).# sprite-alive
