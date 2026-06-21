@@ -92,6 +92,22 @@
   .fx-params { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
   #info b { color: var(--accent); font-weight: normal; }
   .topbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
+
+  /* ---------- BACKGROUND / TILESET ---------- */
+  #bgDrop {
+    border: 2px dashed var(--line); border-radius: 6px;
+    padding: 10px 16px; cursor: pointer; font-size: 13px; text-align: center;
+    display: flex; flex-direction: column; gap: 2px; background: var(--panel2);
+    transition: border-color .15s, background .15s;
+  }
+  #bgDrop.hover { border-color: var(--accent); background: #11203a; }
+  #tilePalette { display: flex; flex-wrap: wrap; gap: 6px; max-width: 920px; }
+  #tilePalette canvas {
+    border: 1px solid var(--line); border-radius: 4px; background: var(--panel2);
+    cursor: pointer; image-rendering: pixelated;
+  }
+  #tilePalette canvas:hover { border-color: var(--accent); }
+  #tilePalette canvas.sel { border-color: var(--good); border-width: 2px; }
 </style>
 </head>
 <body>
@@ -108,7 +124,7 @@
   <input type="file" id="filepick" accept="image/png,image/webp,image/gif" style="display:none">
   <button class="primary" id="btnDemo">Try the demo sheet</button>
   <div class="privacy">Your art never leaves your browser. Nothing is uploaded.</div>
-  <div class="tag">alpha 0.1</div>
+  <div class="tag">alpha 0.2</div>
 </div>
 
 <!-- ============ SCREEN 2: SLICE ============ -->
@@ -184,13 +200,27 @@
 
   <h2>Effects — placeholder game feel</h2>
   <div id="effects"></div>
+
+  <h2>Background — tile from your tileset</h2>
+  <div class="panel" id="bgPanel">
+    <div id="bgDrop">Drop tileset here<span class="tag">or click to browse</span></div>
+    <input type="file" id="bgPick" accept="image/png,image/webp" style="display:none">
+    <label>Cell W <input type="number" id="bgCellW" min="4" max="512" value="16" style="width:70px"></label>
+    <label>Cell H <input type="number" id="bgCellH" min="4" max="512" value="16" style="width:70px"></label>
+    <button id="btnBgAuto">Auto-detect</button>
+    <label>Scale <input type="range" id="bgScale" min="1" max="12" value="4"> <span id="bgScaleVal">4</span>x</label>
+    <button id="btnBgClear">None</button>
+    <span class="msg" id="bgMsg"></span>
+  </div>
+  <div id="tilePalette"></div>
+
   <div class="tag">Beam aims at your mouse over the stage. <kbd>Space</kbd> play &nbsp; <kbd>.</kbd> step &nbsp; <kbd>L</kbd> loop</div>
 </div>
 
 <script>
 "use strict";
 /* =====================================================================
-   SPRITE ALIVE — alpha 0.1
+   SPRITE ALIVE — alpha 0.2
    Single-file sprite sheet animation tester with placeholder effects.
    Everything runs client-side. No uploads, no dependencies.
    Structure:
@@ -222,6 +252,12 @@ const App = {
   beamAge: 0,
   aimAngle: Math.PI / 2,
   loopStarted: false,
+  // --- tileset background (Option 2) ---
+  tileset: null,      // tileset Image
+  tilesetPix: null,   // offscreen canvas of the tileset for pixel reads
+  tiles: [],          // [{sx,sy,w,h}] non-empty tile rects
+  bgTileIndex: -1,    // selected tile, -1 = none (CSS fallback shows)
+  bgScale: 4,         // tile draw scale, independent of sprite zoom
 };
 
 const $ = id => document.getElementById(id);
@@ -320,6 +356,27 @@ function autoDetect(quiet) {
   }
 }
 
+// Reusable: slice an image's pixel canvas into a grid of non-empty cells.
+// Used by both the sprite grid-mode and the tileset background.
+function sliceGrid(pixCanvas, w, h, cw, ch) {
+  cw = Math.max(4, cw | 0); ch = Math.max(4, ch | 0);
+  const cols = Math.floor(w / cw), rows = Math.floor(h / ch);
+  const data = pixCanvas.getContext("2d").getImageData(0, 0, w, h).data;
+  const rects = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    // skip fully transparent cells (common in padded grid sheets)
+    let opaque = false;
+    outer:
+    for (let y = r * ch; y < (r + 1) * ch; y += 2) {
+      for (let x = c * cw; x < (c + 1) * cw; x += 2) {
+        if (data[(y * w + x) * 4 + 3] > 10) { opaque = true; break outer; }
+      }
+    }
+    if (opaque) rects.push({ sx: c * cw, sy: r * ch, w: cw, h: ch });
+  }
+  return rects;
+}
+
 function buildFrames() {
   const w = App.img.width, h = App.img.height;
   App.frames = [];
@@ -330,19 +387,7 @@ function buildFrames() {
   } else {
     const cw = Math.max(4, +$("cellW").value || 4);
     const ch = Math.max(4, +$("cellH").value || 4);
-    const cols = Math.floor(w / cw), rows = Math.floor(h / ch);
-    const data = App.pix.getContext("2d").getImageData(0, 0, w, h).data;
-    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      // skip fully transparent cells (common in padded grid sheets)
-      let opaque = false;
-      outer:
-      for (let y = r * ch; y < (r + 1) * ch; y += 2) {
-        for (let x = c * cw; x < (c + 1) * cw; x += 2) {
-          if (data[(y * w + x) * 4 + 3] > 10) { opaque = true; break outer; }
-        }
-      }
-      if (opaque) App.frames.push({ sx: c * cw, sy: r * ch, w: cw, h: ch });
-    }
+    App.frames = sliceGrid(App.pix, w, h, cw, ch);
     if (App.frames.length === 0) App.frames.push({ sx: 0, sy: 0, w: Math.min(cw, w), h: Math.min(ch, h) });
   }
 }
@@ -614,6 +659,103 @@ function applyPreset(name) {
   if (p.loop) startPlayback();
 }
 
+/* ---------------- 6b. Tileset background (Option 2) ----------------
+   Drop a tileset, slice it by cell size, pick one tile, repeat it
+   across the stage behind the sprite. Independent scale so a small
+   tile can be sized up to match a large sprite.                       */
+const bgDrop = $("bgDrop");
+bgDrop.onclick = () => $("bgPick").click();
+$("bgPick").onchange = e => { if (e.target.files[0]) loadTilesetFile(e.target.files[0]); };
+bgDrop.ondragover = e => { e.preventDefault(); bgDrop.classList.add("hover"); };
+bgDrop.ondragleave = () => bgDrop.classList.remove("hover");
+bgDrop.ondrop = e => {
+  e.preventDefault(); bgDrop.classList.remove("hover");
+  if (e.dataTransfer.files[0]) loadTilesetFile(e.dataTransfer.files[0]);
+};
+["bgCellW", "bgCellH"].forEach(id => $(id).oninput = sliceTileset);
+$("btnBgAuto").onclick = autoDetectTileSize;
+$("btnBgClear").onclick = () => { App.bgTileIndex = -1; markSelectedTile(); };
+$("bgScale").oninput = e => { App.bgScale = +e.target.value; $("bgScaleVal").textContent = e.target.value; };
+
+function loadTilesetFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      App.tileset = img;
+      const c = document.createElement("canvas");
+      c.width = img.width; c.height = img.height;
+      c.getContext("2d").drawImage(img, 0, 0);
+      App.tilesetPix = c;
+      autoDetectTileSize(); // best-guess cell size, then slice
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// Tilesets are 2D grids, so we guess a square cell size: the largest
+// common size from a candidate list that divides both dimensions evenly.
+function autoDetectTileSize() {
+  if (!App.tileset) return;
+  const w = App.tileset.width, h = App.tileset.height;
+  const candidates = [32, 16, 48, 64, 24, 8];
+  const hit = candidates.find(s => w % s === 0 && h % s === 0);
+  if (hit) {
+    $("bgCellW").value = hit; $("bgCellH").value = hit;
+    $("bgMsg").textContent = "Guessed " + hit + "x" + hit + " tiles — adjust if wrong.";
+  } else {
+    $("bgMsg").textContent = "Couldn't guess tile size — set Cell W/H manually.";
+  }
+  sliceTileset();
+}
+
+function sliceTileset() {
+  if (!App.tileset) return;
+  const w = App.tileset.width, h = App.tileset.height;
+  const cw = Math.max(4, +$("bgCellW").value || 16);
+  const ch = Math.max(4, +$("bgCellH").value || 16);
+  App.tiles = sliceGrid(App.tilesetPix, w, h, cw, ch);
+  if (App.tiles.length === 0) App.tiles.push({ sx: 0, sy: 0, w: Math.min(cw, w), h: Math.min(ch, h) });
+  // auto-select first tile so something shows immediately
+  if (App.bgTileIndex < 0 || App.bgTileIndex >= App.tiles.length) App.bgTileIndex = 0;
+  buildTilePalette();
+}
+
+function buildTilePalette() {
+  const pal = $("tilePalette");
+  pal.innerHTML = "";
+  App.tiles.forEach((t, i) => {
+    const cv = document.createElement("canvas");
+    const s = Math.min(3, Math.floor(40 / Math.max(t.w, t.h)) || 1);
+    cv.width = t.w * s; cv.height = t.h * s;
+    const c = cv.getContext("2d");
+    c.imageSmoothingEnabled = false;
+    c.drawImage(App.tileset, t.sx, t.sy, t.w, t.h, 0, 0, cv.width, cv.height);
+    cv.className = i === App.bgTileIndex ? "sel" : "";
+    cv.title = "Tile " + (i + 1);
+    cv.onclick = () => { App.bgTileIndex = i; markSelectedTile(); };
+    pal.appendChild(cv);
+  });
+}
+
+function markSelectedTile() {
+  const kids = $("tilePalette").children;
+  for (let i = 0; i < kids.length; i++) kids[i].className = i === App.bgTileIndex ? "sel" : "";
+}
+
+function drawTileBackground() {
+  if (!App.tileset || App.bgTileIndex < 0 || !App.tiles[App.bgTileIndex]) return;
+  const t = App.tiles[App.bgTileIndex];
+  const dw = t.w * App.bgScale, dh = t.h * App.bgScale;
+  if (dw < 1 || dh < 1) return;
+  for (let y = 0; y < stage.height; y += dh) {
+    for (let x = 0; x < stage.width; x += dw) {
+      sctx.drawImage(App.tileset, t.sx, t.sy, t.w, t.h, x, y, dw, dh);
+    }
+  }
+}
+
 /* ---------------- 7. Render loop ---------------- */
 let last = performance.now();
 function tick(now) {
@@ -649,6 +791,7 @@ function tick(now) {
 
 function render(now) {
   sctx.clearRect(0, 0, stage.width, stage.height);
+  drawTileBackground(); // bottom layer: under sprite and all effects
   if (!App.img || App.frames.length === 0) return;
   const o = spriteOrigin();
 
